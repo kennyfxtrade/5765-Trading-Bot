@@ -1,0 +1,66 @@
+import pandas as pd
+import numpy as np
+import requests
+import matplotlib.pyplot as plt
+
+# Step 1: Data Collection
+# Download historical stock price data for ICT companies using Shaoji API
+def get_stock_data(ticker, start_date, end_date):
+    url = f"https://api.shaoji.com/stock/history?code={ticker}&start_date={start_date}&end_date={end_date}&token=YOUR_TOKEN"
+    response = requests.get(url)
+    data = response.json()
+    df = pd.DataFrame(data['data'], columns=['date', 'open', 'high', 'low', 'close', 'volume'])
+    df['date'] = pd.to_datetime(df['date'])
+    df.set_index('date', inplace=True)
+    return df
+
+tickers = ['AAPL', 'MSFT', 'GOOGL']  # Example ICT companies (Apple, Microsoft, Google)
+start_date = '2020-01-01'
+end_date = '2024-01-01'
+
+stock_data = {ticker: get_stock_data(ticker, start_date, end_date) for ticker in tickers}
+
+# Step 2: Fair Value Analysis
+# Calculate fair value based on a simple moving average (SMA) strategy
+sma_short_window = 50
+sma_long_window = 200
+
+fair_value = {}
+for ticker, data in stock_data.items():
+    fair_value[ticker] = pd.DataFrame(index=data.index)
+    fair_value[ticker]['Short SMA'] = data['close'].rolling(window=sma_short_window).mean()
+    fair_value[ticker]['Long SMA'] = data['close'].rolling(window=sma_long_window).mean()
+
+# Step 3: Identify Gaps
+for ticker in tickers:
+    fair_value[ticker]['Gap'] = fair_value[ticker]['Short SMA'] - fair_value[ticker]['Long SMA']
+    fair_value[ticker]['Signal'] = np.where(fair_value[ticker]['Gap'] > 0, 1, -1)  # 1: Buy Signal, -1: Sell Signal
+
+# Step 4: Algorithm Development
+# Define a simple trading algorithm based on the fair value gap
+def trading_algorithm(signal):
+    position = 0
+    positions = []
+
+    for i in range(len(signal)):
+        if signal[i] == 1:
+            position = 1
+        elif signal[i] == -1:
+            position = -1
+        positions.append(position)
+
+    return positions
+
+positions = {ticker: trading_algorithm(fair_value[ticker]['Signal']) for ticker in tickers}
+
+# Step 5: Backtesting (Plotting)
+plt.figure(figsize=(14, 7))
+for ticker in tickers:
+    plt.plot(stock_data[ticker]['close'], label=f'{ticker} Stock Price')
+    plt.plot(fair_value[ticker]['Short SMA'], label='Short SMA')
+    plt.plot(fair_value[ticker]['Long SMA'], label='Long SMA')
+plt.title('Fair Value Gap Trading Strategy')
+plt.xlabel('Date')
+plt.ylabel('Price')
+plt.legend()
+plt.show()
