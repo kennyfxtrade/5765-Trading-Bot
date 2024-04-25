@@ -1,0 +1,95 @@
+import pandas as pd
+import numpy as np
+import requests
+import matplotlib.pyplot as plt
+
+# Step 1: Data Collection
+# Download historical stock price data for ICT companies using Shaoji API
+def get_stock_data(ticker, start_date, end_date):
+    url = f"https://api.shaoji.com/stock/history?code={ticker}&start_date={start_date}&end_date={end_date}&token=YOUR_TOKEN"
+    response = requests.get(url)
+    data = response.json()
+    df = pd.DataFrame(data['data'], columns=['date', 'open', 'high', 'low', 'close', 'volume'])
+    df['date'] = pd.to_datetime(df['date'])
+    df.set_index('date', inplace=True)
+    return df
+
+# Function to identify previous high and low prices
+def identify_previous_high_low(data, window):
+    data['Previous High'] = data['high'].rolling(window=window, min_periods=1).max()
+    data['Previous Low'] = data['low'].rolling(window=window, min_periods=1).min()
+    return data
+
+# Step 2: Fair Value Analysis
+# Calculate fair value based on a simple moving average (SMA) strategy
+def calculate_fair_value(data, short_window, long_window):
+    fair_value = pd.DataFrame(index=data.index)
+    fair_value['Short SMA'] = data['close'].rolling(window=short_window).mean()
+    fair_value['Long SMA'] = data['close'].rolling(window=long_window).mean()
+    return fair_value
+
+# Step 3: Identify Gaps
+def identify_gaps(data):
+    data['Gap'] = data['Short SMA'] - data['Long SMA']
+    data['Signal'] = np.where(data['Gap'] > 0, 1, -1)  # 1: Buy Signal, -1: Sell Signal
+    return data
+
+# Step 4: Algorithm Development
+# Define a simple trading algorithm based on the fair value gap
+def trading_algorithm(data):
+    position = 0
+    positions = []
+
+    for i in range(len(data)):
+        if data['Signal'].iloc[i] == 1:
+            position = 1
+        elif data['Signal'].iloc[i] == -1:
+            position = -1
+        positions.append(position)
+
+    return positions
+
+# Function to set stop loss and take profit
+def set_stop_loss_take_profit(data, positions):
+    for i in range(1, len(data)):
+        if positions[i] == 1:  # Buy position
+            positions[i] = -1 if data['low'].iloc[i] < data['Previous Low'].iloc[i-1] else 1
+        elif positions[i] == -1:  # Sell position
+            positions[i] = -1 if data['high'].iloc[i] > data['Previous High'].iloc[i-1] else 1
+    return positions
+
+# Step 5: Backtesting (Plotting)
+def backtest(stock_data, short_window, long_window, window):
+    positions = {}
+    for ticker, data in stock_data.items():
+        data = identify_previous_high_low(data, window)
+        fair_value = calculate_fair_value(data, short_window, long_window)
+        fair_value = identify_gaps(fair_value)
+        positions[ticker] = trading_algorithm(fair_value)
+        positions[ticker] = set_stop_loss_take_profit(data, positions[ticker])
+
+        # Plotting
+        plt.figure(figsize=(14, 7))
+        plt.plot(data['close'], label=f'{ticker} Stock Price')
+        plt.plot(fair_value['Short SMA'], label='Short SMA')
+        plt.plot(fair_value['Long SMA'], label='Long SMA')
+        plt.plot(data['Previous High'], label='Previous High')
+        plt.plot(data['Previous Low'], label='Previous Low')
+        plt.title(f'{ticker} Fair Value Gap Trading Strategy')
+        plt.xlabel('Date')
+        plt.ylabel('Price')
+        plt.legend()
+        plt.show()
+
+# Example usage
+tickers = ['AAPL', 'MSFT', 'GOOGL']  # Example ICT companies (Apple, Microsoft, Google)
+start_date = '2020-01-01'
+end_date = '2024-01-01'
+
+stock_data = {ticker: get_stock_data(ticker, start_date, end_date) for ticker in tickers}
+
+short_window = 50
+long_window = 200
+window = 10
+
+backtest(stock_data, short_window, long_window, window)
